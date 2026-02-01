@@ -1,2 +1,3 @@
+# Extend default setup (keep Python) and add ffmpeg. Without "..." we would override and lose Python.
 [phases.setup]
-nixPkgs = ["ffmpeg"]
+nixPkgs = ["...", "ffmpeg"]
