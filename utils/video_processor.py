@@ -119,7 +119,7 @@ def merge_videos(
         )
     video_part = ";".join(video_filters)
 
-    # 2) xfade chain: [v0][v1]xfade -> [v01], [v01][v2]xfade -> [v02], ...
+    # 2) xfade chain: [v0][v1]xfade -> [v01], [v01][v2]xfade -> [v03], ... (for n=2 only [v01] exists)
     offset = durations[0] - transition
     xfade_parts = [f"[v0][v1]xfade=transition=fade:duration={transition}:offset={offset}[v01]"]
     for i in range(2, n):
@@ -129,7 +129,7 @@ def merge_videos(
         xfade_parts.append(
             f"[{prev_label}][v{i}]xfade=transition=fade:duration={transition}:offset={offset}[{curr_label}]"
         )
-    last_video = f"v0{n}"
+    last_video = "v01" if n == 2 else f"v0{n}"
 
     # 3) Audio: [i:a] or [silence_idx:a] trimmed to duration -> [ai]; then acrossfade chain
     audio_prep = []
@@ -149,7 +149,7 @@ def merge_videos(
         prev = "a01" if i == 2 else f"a0{i}"
         curr = f"a0{i + 1}"
         acrossfade_parts.append(f"[{prev}][a{i}]acrossfade=d={transition}:c1=tri:c2=tri[{curr}]")
-    last_audio = f"a0{n}"
+    last_audio = "a01" if n == 2 else f"a0{n}"
     filter_complex = (
         f"{video_part};"
         f"{';'.join(xfade_parts)};"
