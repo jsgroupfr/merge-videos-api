@@ -1,6 +1,7 @@
 """
 Video Merge API – accepts 2–10 video URLs, merges with quality/aspect ratio, returns merged video URL.
 """
+import logging
 import re
 import tempfile
 import time
@@ -9,10 +10,11 @@ from pathlib import Path
 from typing import List
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
+logger = logging.getLogger(__name__)
 from utils.auth import get_api_key
 from utils.storage import upload_merged_video
 from utils.video_processor import (
@@ -113,14 +115,19 @@ def merge(
                 durations,
                 has_audio_list,
             )
-        except RuntimeError as e:
+        except (RuntimeError, ValueError) as e:
+            logger.exception("FFmpeg merge failed")
             raise HTTPException(status_code=500, detail="Video processing failed") from e
 
         # 4) Upload to Railway bucket
         try:
             merged_url = upload_merged_video(out_path, key_prefix=f"merged-{uuid.uuid4().hex[:12]}")
         except Exception as e:
-            raise HTTPException(status_code=500, detail="Failed to upload merged video") from e
+            logger.exception("Upload failed: %s", e)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to upload merged video: {str(e)}",
+            ) from e
 
         elapsed = time.perf_counter() - start
         return MergeSuccessResponse(
@@ -129,6 +136,14 @@ def merge(
             processing_time=round(elapsed, 2),
             clips_merged=len(paths),
         )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Merge request failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Video processing failed: {str(e)}",
+        ) from e
     finally:
         # 5) Cleanup temp files
         for f in (temp_dir.iterdir() if temp_dir.exists() else []):
@@ -168,6 +183,17 @@ def validation_exception_handler(_request: Request, exc: RequestValidationError)
     errors = exc.errors()
     msg = errors[0].get("msg", "Validation error") if errors else "Validation error"
     return JSONResponse(status_code=400, content={"error": msg})
+
+
+@app.get("/")
+def root():
+    """Root: API info and links."""
+    return {
+        "message": "Video Merge API",
+        "docs": "/docs",
+        "health": "/health",
+        "merge": "POST /api/v1/merge (requires X-API-Key)",
+    }
 
 
 @app.get("/health")
